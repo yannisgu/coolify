@@ -9,6 +9,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\ApplicationDeploymentQueue;
 use App\Models\ApplicationPreview;
+use App\Models\GithubApp;
+use App\Models\GitlabApp;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Tag;
@@ -431,11 +433,24 @@ class DeployController extends Controller
             $resource = getResourceByUuid($uuid, $teamId);
             if ($resource) {
                 $dockerTagForResource = $dockerTag;
+                $gitType = null;
                 if ($pr !== 0) {
+                    if ($resource instanceof Application) {
+                        try {
+                            $this->authorize('deploy', $resource);
+                        } catch (AuthorizationException) {
+                            $deployments->push(['message' => 'Unauthorized to deploy this application.', 'resource_uuid' => $uuid]);
+
+                            continue;
+                        }
+                    }
+
                     $preview = null;
                     if ($resource instanceof Application && $resource->build_pack === 'dockerimage') {
                         $preview = $this->upsertDockerImagePreview($resource, $pr, $dockerTag);
                         $dockerTagForResource = $preview?->docker_registry_image_tag;
+                    } elseif ($resource instanceof Application) {
+                        $preview = $this->upsertGitPreview($resource, $pr);
                     } else {
                         $preview = $resource->previews()->where('pull_request_id', $pr)->first();
                     }
@@ -444,8 +459,9 @@ class DeployController extends Controller
 
                         continue;
                     }
+                    $gitType = $preview->git_type;
                 }
-                $result = $this->deploy_resource($resource, $force, $pr, $dockerTagForResource);
+                $result = $this->deploy_resource($resource, $force, $pr, $dockerTagForResource, $gitType);
                 if (isset($result['status']) && $result['status'] === 429) {
                     return response()->json(['message' => $result['message']], 429)->header('Retry-After', 60);
                 }
@@ -518,7 +534,7 @@ class DeployController extends Controller
         return response()->json(['message' => 'No resources found with this tag.'], 404);
     }
 
-    public function deploy_resource($resource, bool $force = false, int $pr = 0, ?string $dockerTag = null): array
+    public function deploy_resource($resource, bool $force = false, int $pr = 0, ?string $dockerTag = null, ?string $gitType = null): array
     {
         $message = null;
         $deployment_uuid = null;
@@ -543,6 +559,7 @@ class DeployController extends Controller
                     force_rebuild: $force,
                     pull_request_id: $pr,
                     is_api: true,
+                    git_type: $gitType,
                     docker_registry_image_tag: $dockerTag,
                 );
                 if ($result['status'] === 'queue_full') {
@@ -622,6 +639,49 @@ class DeployController extends Controller
         if ($dockerTag !== null && $preview->docker_registry_image_tag !== $dockerTag) {
             $preview->docker_registry_image_tag = $dockerTag;
             $preview->save();
+        }
+
+        return $preview;
+    }
+
+    private function upsertGitPreview(Application $application, int $pullRequestId): ?ApplicationPreview
+    {
+        $preview = $application->previews()->where('pull_request_id', $pullRequestId)->first();
+        if ($preview) {
+            return $preview;
+        }
+
+        $gitType = match ($application->source_type) {
+            GithubApp::class => 'github',
+            GitlabApp::class => 'gitlab',
+            default => null,
+        };
+
+        if ($gitType === null) {
+            return null;
+        }
+
+        $repositoryUrl = rtrim((string) data_get($application, 'source.html_url'), '/')
+            .'/'.trim($application->git_repository, '/');
+        $pullRequestUrl = match ($gitType) {
+            'github' => "{$repositoryUrl}/pull/{$pullRequestId}",
+            'gitlab' => "{$repositoryUrl}/-/merge_requests/{$pullRequestId}",
+        };
+
+        $preview = ApplicationPreview::create([
+            'application_id' => $application->id,
+            'pull_request_id' => $pullRequestId,
+            'pull_request_html_url' => $pullRequestUrl,
+            'git_type' => $gitType,
+            'docker_compose_domains' => $application->build_pack === 'dockercompose'
+                ? $application->docker_compose_domains
+                : null,
+        ]);
+
+        if ($application->build_pack === 'dockercompose') {
+            $preview->generate_preview_fqdn_compose(generateWithoutApplicationDomain: true);
+        } else {
+            $preview->generate_preview_fqdn(generateWithoutApplicationDomain: true);
         }
 
         return $preview;
