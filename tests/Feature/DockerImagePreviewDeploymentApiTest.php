@@ -3,6 +3,7 @@
 use App\Models\Application;
 use App\Models\ApplicationPreview;
 use App\Models\Environment;
+use App\Models\InstanceSettings;
 use App\Models\Project;
 use App\Models\Server;
 use App\Models\StandaloneDocker;
@@ -16,6 +17,11 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     Queue::fake();
+
+    InstanceSettings::unguarded(fn () => InstanceSettings::query()->updateOrCreate(
+        ['id' => 0],
+        ['is_api_enabled' => true],
+    ));
 
     $this->team = Team::factory()->create();
     $this->user = User::factory()->create();

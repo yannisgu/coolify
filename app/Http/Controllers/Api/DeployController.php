@@ -2,15 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Application\UpsertApplicationPreview;
 use App\Actions\Database\StartDatabase;
 use App\Actions\Service\StartService;
 use App\Enums\ApplicationDeploymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\ApplicationDeploymentQueue;
-use App\Models\ApplicationPreview;
-use App\Models\GithubApp;
-use App\Models\GitlabApp;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\Tag;
@@ -446,11 +444,20 @@ class DeployController extends Controller
                     }
 
                     $preview = null;
-                    if ($resource instanceof Application && $resource->build_pack === 'dockerimage') {
-                        $preview = $this->upsertDockerImagePreview($resource, $pr, $dockerTag);
-                        $dockerTagForResource = $preview?->docker_registry_image_tag;
-                    } elseif ($resource instanceof Application) {
-                        $preview = $this->upsertGitPreview($resource, $pr);
+                    if ($resource instanceof Application) {
+                        if ($dockerTag !== null && $resource->build_pack !== 'dockerimage') {
+                            $deployments->push(['message' => 'docker_tag can only be used with Docker Image applications.', 'resource_uuid' => $uuid]);
+
+                            continue;
+                        }
+                        $preview = UpsertApplicationPreview::run(
+                            application: $resource,
+                            pullRequestId: $pr,
+                            dockerRegistryImageTag: $dockerTag,
+                        );
+                        if ($resource->build_pack === 'dockerimage') {
+                            $dockerTagForResource = $preview?->docker_registry_image_tag;
+                        }
                     } else {
                         $preview = $resource->previews()->where('pull_request_id', $pr)->first();
                     }
@@ -614,77 +621,6 @@ class DeployController extends Controller
         }
 
         return ['message' => $message, 'deployment_uuid' => $deployment_uuid];
-    }
-
-    private function upsertDockerImagePreview(Application $application, int $pullRequestId, ?string $dockerTag): ?ApplicationPreview
-    {
-        $preview = $application->previews()->where('pull_request_id', $pullRequestId)->first();
-
-        if (! $preview && $dockerTag === null) {
-            return null;
-        }
-
-        if (! $preview) {
-            $preview = ApplicationPreview::create([
-                'application_id' => $application->id,
-                'pull_request_id' => $pullRequestId,
-                'pull_request_html_url' => '',
-                'docker_registry_image_tag' => $dockerTag,
-            ]);
-            $preview->generate_preview_fqdn();
-
-            return $preview;
-        }
-
-        if ($dockerTag !== null && $preview->docker_registry_image_tag !== $dockerTag) {
-            $preview->docker_registry_image_tag = $dockerTag;
-            $preview->save();
-        }
-
-        return $preview;
-    }
-
-    private function upsertGitPreview(Application $application, int $pullRequestId): ?ApplicationPreview
-    {
-        $preview = $application->previews()->where('pull_request_id', $pullRequestId)->first();
-        if ($preview) {
-            return $preview;
-        }
-
-        $gitType = match ($application->source_type) {
-            GithubApp::class => 'github',
-            GitlabApp::class => 'gitlab',
-            default => null,
-        };
-
-        if ($gitType === null) {
-            return null;
-        }
-
-        $repositoryUrl = rtrim((string) data_get($application, 'source.html_url'), '/')
-            .'/'.trim($application->git_repository, '/');
-        $pullRequestUrl = match ($gitType) {
-            'github' => "{$repositoryUrl}/pull/{$pullRequestId}",
-            'gitlab' => "{$repositoryUrl}/-/merge_requests/{$pullRequestId}",
-        };
-
-        $preview = ApplicationPreview::create([
-            'application_id' => $application->id,
-            'pull_request_id' => $pullRequestId,
-            'pull_request_html_url' => $pullRequestUrl,
-            'git_type' => $gitType,
-            'docker_compose_domains' => $application->build_pack === 'dockercompose'
-                ? $application->docker_compose_domains
-                : null,
-        ]);
-
-        if ($application->build_pack === 'dockercompose') {
-            $preview->generate_preview_fqdn_compose(generateWithoutApplicationDomain: true);
-        } else {
-            $preview->generate_preview_fqdn(generateWithoutApplicationDomain: true);
-        }
-
-        return $preview;
     }
 
     #[OA\Get(

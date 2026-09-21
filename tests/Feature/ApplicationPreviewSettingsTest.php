@@ -3,6 +3,7 @@
 use App\Livewire\Project\Application\Previews;
 use App\Models\Application;
 use App\Models\Environment;
+use App\Models\GithubApp;
 use App\Models\InstanceSettings;
 use App\Models\PrivateKey;
 use App\Models\Project;
@@ -130,6 +131,33 @@ it('renders GitHub pull requests in a modal opened from the preview settings', f
         ->toBeLessThan(strpos($view, '<livewire:project.application.preview.form'));
 
     expect($sidebar)->not->toContain("['id' => 'preview-pull-requests-section', 'label' => 'Pull requests']");
+});
+
+it('stores inferred Git provider metadata when the UI configures a preview', function () {
+    $githubApp = GithubApp::create([
+        'name' => 'preview-settings-github-app',
+        'api_url' => 'https://api.github.com',
+        'html_url' => 'https://github.com',
+        'is_public' => true,
+        'team_id' => $this->team->id,
+    ]);
+    $this->application->source()->associate($githubApp);
+    $this->application->git_repository = 'example/repository';
+    $this->application->save();
+
+    Livewire::test(Previews::class, ['application' => $this->application->fresh()])
+        ->set('parameters', [
+            'project_uuid' => $this->project->uuid,
+            'environment_uuid' => $this->environment->uuid,
+            'application_uuid' => $this->application->uuid,
+        ])
+        ->call('add', 66, 'https://github.com/example/repository/pull/66')
+        ->assertDispatched('success');
+
+    $preview = $this->application->previews()->where('pull_request_id', 66)->firstOrFail();
+
+    expect($preview->git_type)->toBe('github')
+        ->and($preview->pull_request_html_url)->toBe('https://github.com/example/repository/pull/66');
 });
 
 it('does not show git preview settings for non-git applications', function (string $buildPack, ?string $dockerfile) {
