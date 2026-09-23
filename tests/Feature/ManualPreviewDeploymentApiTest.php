@@ -168,3 +168,97 @@ it('does not create a preview before deployment authorization succeeds', functio
     expect($application->previews()->exists())->toBeFalse()
         ->and($application->deployment_queue()->exists())->toBeFalse();
 });
+
+it('keeps the stored preview domain when the deployment queue rejects the request', function () {
+    $application = Application::factory()->create([
+        'environment_id' => $this->environment->id,
+        'destination_id' => $this->destination->id,
+        'destination_type' => $this->destination->getMorphClass(),
+        'source_id' => $this->githubApp->id,
+        'source_type' => $this->githubApp->getMorphClass(),
+        'git_repository' => 'example/repository',
+        'git_branch' => 'main',
+        'git_commit_sha' => 'HEAD',
+        'build_pack' => 'dockerfile',
+        'fqdn' => 'https://example.com',
+        'preview_url_template' => '{{random}}.{{domain}}',
+    ]);
+    $preview = ApplicationPreview::create([
+        'application_id' => $application->id,
+        'pull_request_id' => 66,
+        'pull_request_html_url' => 'https://github.com/example/repository/pull/66',
+        'git_type' => 'github',
+        'fqdn' => 'https://stable.example.com',
+    ]);
+    $this->server->settings->update(['deployment_queue_limit' => 0]);
+
+    $response = $this->withToken($this->bearerToken)->postJson('/api/v1/deploy', [
+        'uuid' => $application->uuid,
+        'pull_request_id' => 66,
+    ]);
+
+    $response->assertStatus(429);
+
+    expect($preview->refresh()->fqdn)->toBe('https://stable.example.com')
+        ->and($application->deployment_queue()->exists())->toBeFalse();
+});
+
+it('keeps the stored preview domain when a duplicate deployment is skipped', function () {
+    $application = Application::factory()->create([
+        'environment_id' => $this->environment->id,
+        'destination_id' => $this->destination->id,
+        'destination_type' => $this->destination->getMorphClass(),
+        'source_id' => $this->githubApp->id,
+        'source_type' => $this->githubApp->getMorphClass(),
+        'git_repository' => 'example/repository',
+        'git_branch' => 'main',
+        'git_commit_sha' => 'HEAD',
+        'build_pack' => 'dockerfile',
+        'fqdn' => 'https://example.com',
+        'preview_url_template' => '{{random}}.{{domain}}',
+    ]);
+
+    $this->withToken($this->bearerToken)->postJson('/api/v1/deploy', [
+        'uuid' => $application->uuid,
+        'pull_request_id' => 66,
+    ])->assertSuccessful();
+
+    $preview = $application->previews()->where('pull_request_id', 66)->firstOrFail();
+    $generatedFqdn = $preview->fqdn;
+
+    expect($generatedFqdn)->toStartWith('https://')
+        ->and($generatedFqdn)->toEndWith('.example.com');
+
+    $this->withToken($this->bearerToken)->postJson('/api/v1/deploy', [
+        'uuid' => $application->uuid,
+        'pull_request_id' => 66,
+    ])->assertSuccessful()
+        ->assertJsonPath('deployments.0.message', 'Deployment already queued for this commit.');
+
+    expect($preview->refresh()->fqdn)->toBe($generatedFqdn)
+        ->and($application->deployment_queue()->count())->toBe(1);
+});
+
+it('does not expose a domainless application through a generated preview domain', function () {
+    $application = Application::factory()->create([
+        'environment_id' => $this->environment->id,
+        'destination_id' => $this->destination->id,
+        'destination_type' => $this->destination->getMorphClass(),
+        'source_id' => $this->githubApp->id,
+        'source_type' => $this->githubApp->getMorphClass(),
+        'git_repository' => 'example/repository',
+        'git_branch' => 'main',
+        'git_commit_sha' => 'HEAD',
+        'build_pack' => 'dockerfile',
+        'fqdn' => null,
+    ]);
+
+    $this->withToken($this->bearerToken)->postJson('/api/v1/deploy', [
+        'uuid' => $application->uuid,
+        'pull_request_id' => 66,
+    ])->assertSuccessful();
+
+    $preview = $application->previews()->where('pull_request_id', 66)->firstOrFail();
+
+    expect($preview->fqdn)->toBeNull();
+});

@@ -12,18 +12,37 @@ class UpsertApplicationPreview
 {
     use AsAction;
 
+    /**
+     * Create or update the preview for a pull request.
+     *
+     * Preview domains are only generated for previews that are created here, or when the caller
+     * explicitly asks for a regeneration. Deployment entrypoints must leave the domains of an
+     * existing preview untouched: `{{random}}` templates produce a new URL on every generation, so
+     * regenerating before the deployment is accepted would rewrite the stored URL of a preview that
+     * is never redeployed (rejected or skipped deployments). Accepted deployments regenerate the
+     * domains when `ApplicationDeploymentJob` is dispatched anyway.
+     *
+     * @param  bool  $generateWithoutApplicationDomain  Fall back to a generated (sslip.io) domain when the
+     *                                                  application itself has no domain configured. Keep this
+     *                                                  off for non-interactive entrypoints such as the API, so
+     *                                                  domainless applications are not exposed publicly.
+     * @param  bool  $regenerateFqdn  Regenerate the domains of an already existing preview.
+     */
     public function handle(
         Application $application,
         int $pullRequestId,
         ?string $pullRequestHtmlUrl = null,
         ?string $gitType = null,
         ?string $dockerRegistryImageTag = null,
+        bool $generateWithoutApplicationDomain = false,
+        bool $regenerateFqdn = false,
     ): ?ApplicationPreview {
         $gitType ??= $this->gitType($application);
         $pullRequestHtmlUrl ??= $this->pullRequestUrl($application, $pullRequestId, $gitType);
         $preview = $application->previews()->where('pull_request_id', $pullRequestId)->first();
+        $isNewPreview = $preview === null;
 
-        if (! $preview) {
+        if ($isNewPreview) {
             $canCreate = filled($pullRequestHtmlUrl)
                 || ($application->build_pack === 'dockerimage' && filled($dockerRegistryImageTag));
             if (! $canCreate) {
@@ -56,10 +75,12 @@ class UpsertApplicationPreview
             }
         }
 
-        if ($application->build_pack === 'dockercompose') {
-            $preview->generate_preview_fqdn_compose(generateWithoutApplicationDomain: true);
-        } else {
-            $preview->generate_preview_fqdn(generateWithoutApplicationDomain: true);
+        if ($isNewPreview || $regenerateFqdn) {
+            if ($application->build_pack === 'dockercompose') {
+                $preview->generate_preview_fqdn_compose($generateWithoutApplicationDomain);
+            } else {
+                $preview->generate_preview_fqdn($generateWithoutApplicationDomain);
+            }
         }
 
         return $preview;

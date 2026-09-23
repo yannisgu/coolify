@@ -150,3 +150,54 @@ test('it rejects docker_tag for non docker image applications', function () {
     $response->assertSuccessful();
     $response->assertJsonPath('deployments.0.message', 'docker_tag can only be used with Docker Image applications.');
 });
+
+test('it does not generate a preview domain for a domainless docker image application', function () {
+    $application = createDockerImageApplication($this->environment, $this->destination);
+
+    $response = $this->withHeaders([
+        'Authorization' => 'Bearer '.$this->bearerToken,
+    ])->postJson('/api/v1/deploy', [
+        'uuid' => $application->uuid,
+        'pull_request_id' => 1234,
+        'docker_tag' => 'pr_1234',
+    ]);
+
+    $response->assertSuccessful();
+
+    $preview = ApplicationPreview::query()
+        ->where('application_id', $application->id)
+        ->where('pull_request_id', 1234)
+        ->firstOrFail();
+
+    expect($preview->fqdn)->toBeNull();
+});
+
+test('it keeps an existing docker image preview domain when the deployment is rejected', function () {
+    $application = createDockerImageApplication($this->environment, $this->destination);
+    $application->update([
+        'fqdn' => 'https://example.com',
+        'preview_url_template' => '{{random}}.{{domain}}',
+    ]);
+
+    $preview = ApplicationPreview::create([
+        'application_id' => $application->id,
+        'pull_request_id' => 99,
+        'pull_request_html_url' => '',
+        'docker_registry_image_tag' => 'pr_99_old',
+        'fqdn' => 'https://stable.example.com',
+    ]);
+    $this->server->settings->update(['deployment_queue_limit' => 0]);
+
+    $response = $this->withHeaders([
+        'Authorization' => 'Bearer '.$this->bearerToken,
+    ])->postJson('/api/v1/deploy', [
+        'uuid' => $application->uuid,
+        'pull_request_id' => 99,
+        'docker_tag' => 'pr_99_new',
+    ]);
+
+    $response->assertStatus(429);
+
+    expect($preview->refresh()->fqdn)->toBe('https://stable.example.com')
+        ->and($application->deployment_queue()->exists())->toBeFalse();
+});

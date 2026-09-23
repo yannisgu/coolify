@@ -2,6 +2,7 @@
 
 use App\Livewire\Project\Application\Previews;
 use App\Models\Application;
+use App\Models\ApplicationPreview;
 use App\Models\Environment;
 use App\Models\GithubApp;
 use App\Models\InstanceSettings;
@@ -12,6 +13,7 @@ use App\Models\StandaloneDocker;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -190,4 +192,68 @@ it('removes preview settings from Advanced including its persistence path', func
         ->not->toContain('isPreviewDeploymentsEnabled', 'isPrDeploymentsPublicEnabled');
     expect(file_get_contents(app_path('Livewire/Project/Application/Advanced.php')))
         ->not->toContain('is_preview_deployments_enabled', 'is_pr_deployments_public_enabled');
+});
+
+it('regenerates the preview domain when the UI adds a preview again', function () {
+    $this->application->update([
+        'fqdn' => 'https://example.com',
+        'preview_url_template' => '{{random}}.{{domain}}',
+    ]);
+    $preview = ApplicationPreview::create([
+        'application_id' => $this->application->id,
+        'pull_request_id' => 66,
+        'pull_request_html_url' => 'https://github.com/example/repository/pull/66',
+        'fqdn' => 'https://previous.example.com',
+    ]);
+
+    Livewire::test(Previews::class, ['application' => $this->application->fresh()])
+        ->set('parameters', [
+            'project_uuid' => $this->project->uuid,
+            'environment_uuid' => $this->environment->uuid,
+            'application_uuid' => $this->application->uuid,
+        ])
+        ->call('add', 66, 'https://github.com/example/repository/pull/66')
+        ->assertDispatched('success');
+
+    expect($preview->refresh()->fqdn)
+        ->not->toBe('https://previous.example.com')
+        ->and($preview->fqdn)->toEndWith('.example.com');
+});
+
+it('keeps the preview domain when a duplicate UI deployment is skipped', function () {
+    Queue::fake();
+
+    $this->application->update([
+        'fqdn' => 'https://example.com',
+        'preview_url_template' => '{{random}}.{{domain}}',
+    ]);
+    ApplicationPreview::create([
+        'application_id' => $this->application->id,
+        'pull_request_id' => 66,
+        'pull_request_html_url' => 'https://github.com/example/repository/pull/66',
+        'git_type' => 'github',
+        'fqdn' => 'https://stable.example.com',
+    ]);
+
+    $parameters = [
+        'project_uuid' => $this->project->uuid,
+        'environment_uuid' => $this->environment->uuid,
+        'application_uuid' => $this->application->uuid,
+    ];
+
+    Livewire::test(Previews::class, ['application' => $this->application->fresh()])
+        ->set('parameters', $parameters)
+        ->call('deploy', 66)
+        ->assertHasNoErrors();
+
+    $queuedFqdn = $this->application->previews()->where('pull_request_id', 66)->value('fqdn');
+
+    Livewire::test(Previews::class, ['application' => $this->application->fresh()])
+        ->set('parameters', $parameters)
+        ->call('deploy', 66)
+        ->assertHasNoErrors()
+        ->assertDispatched('success', 'Deployment skipped', 'Deployment already queued for this commit.');
+
+    expect($this->application->previews()->where('pull_request_id', 66)->value('fqdn'))->toBe($queuedFqdn)
+        ->and($this->application->deployment_queue()->count())->toBe(1);
 });

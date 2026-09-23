@@ -142,6 +142,8 @@ class Previews extends Component
                 pullRequestId: $pull_request_id,
                 pullRequestHtmlUrl: $pull_request_html_url,
                 dockerRegistryImageTag: $docker_registry_image_tag,
+                generateWithoutApplicationDomain: $this->application->build_pack !== 'dockercompose',
+                regenerateFqdn: true,
             );
             if (! $preview) {
                 throw new \RuntimeException('Preview could not be created.');
