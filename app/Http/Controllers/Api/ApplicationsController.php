@@ -2379,32 +2379,7 @@ class ApplicationsController extends Controller
             if ($return instanceof JsonResponse) {
                 return $return;
             }
-            // Process docker image name and tag using DockerImageParser
-            $dockerImageName = $request->docker_registry_image_name;
-            $dockerImageTag = $request->docker_registry_image_tag;
-
-            // Build the full Docker image string for parsing
-            if ($dockerImageTag) {
-                $dockerImageString = $dockerImageName.':'.$dockerImageTag;
-            } else {
-                $dockerImageString = $dockerImageName;
-            }
-
-            // Parse using DockerImageParser to normalize the image reference
-            $parser = new DockerImageParser;
-            $parser->parse($dockerImageString);
-
-            // Get normalized image name and tag
-            $normalizedImageName = $parser->getFullImageNameWithoutTag();
-
-            // Append @sha256 to image name if using digest
-            if ($parser->isImageHash() && ! str_ends_with($normalizedImageName, '@sha256')) {
-                $normalizedImageName .= '@sha256';
-            }
-
-            // Set processed values back to request
-            $request->offsetSet('docker_registry_image_name', $normalizedImageName);
-            $request->offsetSet('docker_registry_image_tag', $parser->getTag());
+            $this->normalizeDockerImageReference($request, $request->docker_registry_image_name, $request->docker_registry_image_tag);
 
             $application = new Application;
             removeUnnecessaryFieldsFromRequest($request);
@@ -3122,6 +3097,25 @@ class ApplicationsController extends Controller
         ]);
     }
 
+    /**
+     * Normalize a Docker image reference into the name and tag a Docker Image
+     * application stores, the way DockerImageParser reads it.
+     */
+    private function normalizeDockerImageReference(Request $request, ?string $dockerImageName, ?string $dockerImageTag): void
+    {
+        $parser = new DockerImageParser;
+        $parser->parse($dockerImageTag ? $dockerImageName.':'.$dockerImageTag : $dockerImageName);
+
+        $normalizedImageName = $parser->getFullImageNameWithoutTag();
+        // Append @sha256 to image name if using digest
+        if ($parser->isImageHash() && ! str_ends_with($normalizedImageName, '@sha256')) {
+            $normalizedImageName .= '@sha256';
+        }
+
+        $request->offsetSet('docker_registry_image_name', $normalizedImageName);
+        $request->offsetSet('docker_registry_image_tag', $parser->getTag());
+    }
+
     #[OA\Patch(
         summary: 'Update',
         description: 'Update application by UUID.',
@@ -3155,7 +3149,7 @@ class ApplicationsController extends Controller
                             'git_repository' => ['type' => 'string', 'description' => 'The git repository URL.'],
                             'git_branch' => ['type' => 'string', 'description' => 'The git branch.'],
                             'ports_exposes' => ['type' => 'string', 'description' => 'The ports to expose.'],
-                            'build_pack' => ['type' => 'string', 'enum' => ['nixpacks', 'railpack', 'static', 'dockerfile', 'dockercompose'], 'description' => 'The build pack type.'],
+                            'build_pack' => ['type' => 'string', 'enum' => ['nixpacks', 'railpack', 'static', 'dockerfile', 'dockercompose', 'dockerimage'], 'description' => 'The build pack type. A Git based application (not Docker Compose) can be changed to dockerimage, with docker_registry_image_name; its Git source is removed.'],
                             'name' => ['type' => 'string', 'description' => 'The application name.'],
                             'description' => ['type' => 'string', 'description' => 'The application description.'],
                             'domains' => ['type' => 'string', 'description' => 'The application URLs in a comma-separated list.'],
@@ -3382,6 +3376,8 @@ class ApplicationsController extends Controller
             'http_basic_auth_password' => 'string|max:72',
             'include_source_commit_in_build' => 'boolean',
             'ports_exposes' => 'nullable|string|regex:/^(\d+)(,\d+)*$/',
+            // A Git based application can become a Docker Image application.
+            'build_pack' => ['string', Rule::in([...array_column(BuildPackTypes::cases(), 'value'), 'dockerimage'])],
         ];
         $validationRules = array_merge(sharedDataApplications($application), $validationRules);
         $validationMessages = [
@@ -3503,6 +3499,40 @@ class ApplicationsController extends Controller
             if (! $githubApp?->isConnected()) {
                 return response()->json(['message' => 'Github App not found.'], 404);
             }
+        }
+
+        $convertsToDockerImage = $request->input('build_pack') === 'dockerimage' && $application->build_pack !== 'dockerimage';
+        if ($request->filled('build_pack') && $request->input('build_pack') !== 'dockerimage' && $application->build_pack === 'dockerimage') {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'build_pack' => 'A Docker Image application has no Git source to build from. Create a Git based application instead.',
+                ],
+            ], 422);
+        }
+        if ($convertsToDockerImage) {
+            if ($application->build_pack === BuildPackTypes::DOCKERCOMPOSE->value) {
+                return response()->json([
+                    'message' => 'Validation failed.',
+                    'errors' => [
+                        'build_pack' => 'A Docker Compose application cannot become a Docker Image application.',
+                    ],
+                ], 422);
+            }
+            $dockerImageName = $request->input('docker_registry_image_name', $application->docker_registry_image_name);
+            if (blank($dockerImageName)) {
+                return response()->json([
+                    'message' => 'Validation failed.',
+                    'errors' => [
+                        'docker_registry_image_name' => 'The docker_registry_image_name is required to change the build pack to dockerimage.',
+                    ],
+                ], 422);
+            }
+            $this->normalizeDockerImageReference(
+                $request,
+                $dockerImageName,
+                $request->input('docker_registry_image_tag', $request->has('docker_registry_image_name') ? null : $application->docker_registry_image_tag),
+            );
         }
 
         $applicationSettings = $this->applicationSettingsFromRequest($request);
@@ -3769,6 +3799,17 @@ class ApplicationsController extends Controller
             $application->source_type = $githubApp->getMorphClass();
             // The next deployment fetches the repository ID from the new source.
             $application->repository_project_id = null;
+        }
+        if ($convertsToDockerImage) {
+            // As a Docker Image application is created: no Git source, so Git
+            // webhooks no longer reach it, and the placeholder repository the
+            // model expects.
+            $application->git_repository = 'coollabsio/coolify';
+            $application->git_branch = 'main';
+            $application->git_commit_sha = 'HEAD';
+            $application->source_id = null;
+            $application->source_type = null;
+            $application->private_key_id = null;
         }
         if ($requestHasNoindexDomains) {
             // Must run after fqdn is filled: flags are kept only for domains the app still has.
