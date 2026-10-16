@@ -79,7 +79,7 @@
                         label="Proxy timeout" helper="Timeout in seconds. The default is 3600."
                         canGate="update" :canResource="$database" />
                     <x-forms.input placeholder="3000:6379" id="portsMappings" label="Port mappings"
-                        helper="Comma-separated host-to-container mappings, for example 3000:6379."
+                        helper="Comma-separated [ip:]host:container mappings, for example 3000:6379, or 10.0.0.5:6379:6379 to bind a single host IP. Leave empty to publish no ports. Restart the database to apply. This is separate from public access, which uses its own proxy."
                         canGate="update" :canResource="$database" />
                 </div>
             </x-application.settings-subsection>
