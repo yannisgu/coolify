@@ -336,7 +336,7 @@ class StandaloneClickhouse extends BaseModel
         return Attribute::make(
             get: fn () => is_null($this->ports_mappings)
                 ? []
-                : explode(',', $this->ports_mappings),
+                : array_values(array_filter(array_map('trim', explode(',', $this->ports_mappings)), fn ($mapping) => $mapping !== '')),
 
         );
     }
