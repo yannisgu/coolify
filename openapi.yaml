@@ -4514,6 +4514,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -4869,6 +4874,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -4968,6 +4978,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -5064,6 +5079,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -5163,6 +5183,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -5262,6 +5287,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -5370,6 +5400,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -5478,6 +5513,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
@@ -5577,6 +5617,11 @@ paths:
                 public_port_timeout:
                   type: integer
                   description: 'Public port timeout in seconds (default: 3600)'
+                ports_mappings:
+                  type: string
+                  nullable: true
+                  description: 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.'
+                  example: '127.0.0.1:5432:5432'
                 limits_memory:
                   type: string
                   description: 'Memory limit of the database'
