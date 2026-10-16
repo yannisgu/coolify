@@ -5134,22 +5134,6 @@ class ApplicationsController extends Controller
             ], 422);
         }
 
-        // Validate ports_mappings
-        if ($request->has('ports_mappings')) {
-            $ports = [];
-            foreach (explode(',', $request->ports_mappings) as $portMapping) {
-                $port = explode(':', $portMapping);
-                if (in_array($port[0], $ports)) {
-                    return response()->json([
-                        'message' => 'Validation failed.',
-                        'errors' => [
-                            'ports_mappings' => 'The first number before : should be unique between mappings.',
-                        ],
-                    ], 422);
-                }
-                $ports[] = $port[0];
-            }
-        }
         // Validate custom_labels
         if ($request->has('custom_labels')) {
             if (! isBase64Encoded($request->custom_labels)) {

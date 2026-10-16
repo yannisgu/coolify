@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Rules\UniquePortMappingHostBindings;
+
 /**
  * Shared validation patterns for consistent use across the application
  */
@@ -806,7 +808,7 @@ class ValidationPatterns
      */
     public static function portMappingRules(): array
     {
-        return ['nullable', 'string', 'regex:'.self::PORT_MAPPINGS_PATTERN];
+        return ['nullable', 'string', 'regex:'.self::PORT_MAPPINGS_PATTERN, new UniquePortMappingHostBindings];
     }
 
     /**
