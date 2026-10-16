@@ -572,6 +572,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public? Changing it starts or stops the database proxy, so it needs a token with the deploy permission.'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database (1024-65535)'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -649,7 +650,7 @@ class DatabasesController extends Controller
     )]
     public function update_by_uuid(Request $request)
     {
-        $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf', 'clickhouse_admin_user', 'clickhouse_admin_password', 'dragonfly_password', 'redis_password', 'redis_conf', 'keydb_password', 'keydb_conf', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf', 'sqlite_databases'];
+        $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf', 'clickhouse_admin_user', 'clickhouse_admin_password', 'dragonfly_password', 'redis_password', 'redis_conf', 'keydb_password', 'keydb_conf', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf', 'sqlite_databases'];
         $teamId = getTeamIdFromToken();
         if (is_null($teamId)) {
             return invalidTokenResponse();
@@ -678,7 +679,8 @@ class DatabasesController extends Controller
             'redact_all_env_values_in_logs' => 'boolean',
             'include_coolify_default_variables' => 'boolean',
             'is_log_drain_enabled' => 'boolean',
-        ], ValidationPatterns::combinedMessages());
+            'ports_mappings' => ValidationPatterns::portMappingRules(),
+        ], [...ValidationPatterns::combinedMessages(), ...ValidationPatterns::portMappingMessages('ports_mappings')]);
 
         if ($validator->fails()) {
             return response()->json([
@@ -729,7 +731,7 @@ class DatabasesController extends Controller
         }
         switch ($database->type()) {
             case 'standalone-postgresql':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf'];
                 $validator = customApiValidator($request->all(), [
                     'postgres_user' => ValidationPatterns::databaseIdentifierRules(required: false),
                     'postgres_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -760,20 +762,20 @@ class DatabasesController extends Controller
                 }
                 break;
             case 'standalone-clickhouse':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'clickhouse_admin_user', 'clickhouse_admin_password'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'clickhouse_admin_user', 'clickhouse_admin_password'];
                 $validator = customApiValidator($request->all(), [
                     'clickhouse_admin_user' => ValidationPatterns::databaseIdentifierRules(required: false),
                     'clickhouse_admin_password' => ValidationPatterns::databasePasswordRules(required: false),
                 ]);
                 break;
             case 'standalone-dragonfly':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'dragonfly_password'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'dragonfly_password'];
                 $validator = customApiValidator($request->all(), [
                     'dragonfly_password' => ValidationPatterns::databasePasswordRules(required: false),
                 ]);
                 break;
             case 'standalone-redis':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'redis_password', 'redis_conf'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'redis_password', 'redis_conf'];
                 $validator = customApiValidator($request->all(), [
                     'redis_password' => ValidationPatterns::databasePasswordRules(required: false),
                     'redis_conf' => 'string',
@@ -800,7 +802,7 @@ class DatabasesController extends Controller
                 }
                 break;
             case 'standalone-keydb':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'keydb_password', 'keydb_conf'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'keydb_password', 'keydb_conf'];
                 $validator = customApiValidator($request->all(), [
                     'keydb_password' => ValidationPatterns::databasePasswordRules(required: false),
                     'keydb_conf' => 'string',
@@ -827,7 +829,7 @@ class DatabasesController extends Controller
                 }
                 break;
             case 'standalone-mariadb':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database'];
                 $validator = customApiValidator($request->all(), [
                     'mariadb_conf' => 'string',
                     'mariadb_root_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -857,7 +859,7 @@ class DatabasesController extends Controller
                 }
                 break;
             case 'standalone-mongodb':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database'];
                 $validator = customApiValidator($request->all(), [
                     'mongo_conf' => 'string',
                     'mongo_initdb_root_username' => ValidationPatterns::databaseIdentifierRules(required: false),
@@ -887,7 +889,7 @@ class DatabasesController extends Controller
 
                 break;
             case 'standalone-mysql':
-                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf'];
+                $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf'];
                 $validator = customApiValidator($request->all(), [
                     'mysql_root_password' => ValidationPatterns::databasePasswordRules(required: false),
                     'mysql_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -1566,6 +1568,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -1635,6 +1638,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -1703,6 +1707,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -1772,6 +1777,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -1841,6 +1847,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -1913,6 +1920,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -1985,6 +1993,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -2054,6 +2063,7 @@ class DatabasesController extends Controller
                         'is_public' => ['type' => 'boolean', 'description' => 'Is the database public?'],
                         'public_port' => ['type' => 'integer', 'description' => 'Public port of the database'],
                         'public_port_timeout' => ['type' => 'integer', 'description' => 'Public port timeout in seconds (default: 3600)'],
+                        'ports_mappings' => ['type' => 'string', 'nullable' => true, 'description' => 'Comma-separated Docker port mappings published on the host, as [ip:]host:container (IPv6 in brackets), e.g. "5432:5432" or "10.0.0.5:5432:5432". Empty string or null removes all mappings. Applied on the next restart. Independent of is_public/public_port.', 'example' => '127.0.0.1:5432:5432'],
                         'limits_memory' => ['type' => 'string', 'description' => 'Memory limit of the database'],
                         'limits_memory_swap' => ['type' => 'string', 'description' => 'Memory swap limit of the database'],
                         'limits_memory_swappiness' => ['type' => 'integer', 'description' => 'Memory swappiness of the database'],
@@ -2158,7 +2168,7 @@ class DatabasesController extends Controller
 
     public function create_database(Request $request, NewDatabaseTypes $type)
     {
-        $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf', 'clickhouse_admin_user', 'clickhouse_admin_password', 'dragonfly_password', 'redis_password', 'redis_conf', 'keydb_password', 'keydb_conf', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf', 'sqlite_databases', 'tags'];
+        $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf', 'clickhouse_admin_user', 'clickhouse_admin_password', 'dragonfly_password', 'redis_password', 'redis_conf', 'keydb_password', 'keydb_conf', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf', 'sqlite_databases', 'tags'];
 
         $teamId = getTeamIdFromToken();
         if (is_null($teamId)) {
@@ -2267,10 +2277,11 @@ class DatabasesController extends Controller
             'limits_cpus' => 'string',
             'limits_cpuset' => 'string|nullable',
             'limits_cpu_shares' => 'numeric',
+            'ports_mappings' => ValidationPatterns::portMappingRules(),
             'instant_deploy' => 'boolean',
             'tags' => 'array|nullable',
             'tags.*' => 'string|min:2',
-        ], ValidationPatterns::combinedMessages());
+        ], [...ValidationPatterns::combinedMessages(), ...ValidationPatterns::portMappingMessages('ports_mappings')]);
         if ($validator->fails()) {
             return response()->json([
                 'message' => 'Validation failed.',
@@ -2295,7 +2306,7 @@ class DatabasesController extends Controller
             }
         }
         if ($type === NewDatabaseTypes::POSTGRESQL) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'postgres_user', 'postgres_password', 'postgres_db', 'postgres_initdb_args', 'postgres_host_auth_method', 'postgres_conf', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'postgres_user' => ValidationPatterns::databaseIdentifierRules(required: false),
                 'postgres_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -2361,7 +2372,7 @@ class DatabasesController extends Controller
 
             return response()->json(serializeApiResponse($payload))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::MARIADB) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'mariadb_conf', 'mariadb_root_password', 'mariadb_user', 'mariadb_password', 'mariadb_database', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'mariadb_conf' => 'string',
                 'mariadb_root_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -2427,7 +2438,7 @@ class DatabasesController extends Controller
 
             return response()->json(serializeApiResponse($payload))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::MYSQL) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'mysql_root_password', 'mysql_password', 'mysql_user', 'mysql_database', 'mysql_conf', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'mysql_root_password' => ValidationPatterns::databasePasswordRules(required: false),
                 'mysql_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -2493,7 +2504,7 @@ class DatabasesController extends Controller
 
             return response()->json(serializeApiResponse($payload))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::REDIS) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'redis_password', 'redis_conf', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'redis_password', 'redis_conf', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'redis_password' => ValidationPatterns::databasePasswordRules(required: false),
                 'redis_conf' => 'string',
@@ -2556,7 +2567,7 @@ class DatabasesController extends Controller
 
             return response()->json(serializeApiResponse($payload))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::DRAGONFLY) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares',  'dragonfly_password', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings',  'dragonfly_password', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'dragonfly_password' => ValidationPatterns::databasePasswordRules(required: false),
             ]);
@@ -2589,7 +2600,7 @@ class DatabasesController extends Controller
                 'uuid' => $database->uuid,
             ]))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::KEYDB) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'keydb_password', 'keydb_conf', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'keydb_password', 'keydb_conf', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'keydb_password' => ValidationPatterns::databasePasswordRules(required: false),
                 'keydb_conf' => 'string',
@@ -2652,7 +2663,7 @@ class DatabasesController extends Controller
 
             return response()->json(serializeApiResponse($payload))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::CLICKHOUSE) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares',  'clickhouse_admin_user', 'clickhouse_admin_password', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings',  'clickhouse_admin_user', 'clickhouse_admin_password', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'clickhouse_admin_user' => ValidationPatterns::databaseIdentifierRules(required: false),
                 'clickhouse_admin_password' => ValidationPatterns::databasePasswordRules(required: false),
@@ -2695,7 +2706,7 @@ class DatabasesController extends Controller
 
             return response()->json(serializeApiResponse($payload))->setStatusCode(201);
         } elseif ($type === NewDatabaseTypes::MONGODB) {
-            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database', 'tags'];
+            $allowedFields = ['name', 'description', 'image', 'public_port', 'public_port_timeout', 'is_public', 'project_uuid', 'environment_name', 'environment_uuid', 'server_uuid', 'destination_uuid', 'instant_deploy', 'limits_memory', 'limits_memory_swap', 'limits_memory_swappiness', 'limits_memory_reservation', 'limits_cpus', 'limits_cpuset', 'limits_cpu_shares', 'ports_mappings', 'mongo_conf', 'mongo_initdb_root_username', 'mongo_initdb_root_password', 'mongo_initdb_database', 'tags'];
             $validator = customApiValidator($request->all(), [
                 'mongo_conf' => 'string',
                 'mongo_initdb_root_username' => ValidationPatterns::databaseIdentifierRules(required: false),
