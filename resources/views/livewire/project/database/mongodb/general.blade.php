@@ -57,7 +57,7 @@
                         :canResource="$database" />
                 </div>
                 <x-forms.input placeholder="3000:27017" id="portsMappings" label="Port mappings"
-                    helper="Comma-separated host-to-container mappings, for example 3000:27017."
+                    helper="Comma-separated [ip:]host:container mappings, for example 3000:27017, or 10.0.0.5:27017:27017 to bind a single host IP. Leave empty to publish no ports. Restart the database to apply. This is separate from public access, which uses its own proxy."
                     canGate="update" :canResource="$database" />
             </div>
             <div class="mt-4">
