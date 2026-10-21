@@ -3159,6 +3159,22 @@ paths:
           schema:
             type: boolean
             default: false
+        -
+          name: pull_request_id
+          in: query
+          description: 'Pull request id. Deploys the preview deployment of this pull request instead of the application, like POST /applications/{uuid}/previews: a missing preview is created first (pass git_type for applications without a GitHub or GitLab App source, docker_tag for Docker Image applications), and the response contains the preview.'
+          schema:
+            type: integer
+            maximum: 2147483647
+            minimum: 1
+        -
+          name: pr
+          in: query
+          description: 'Alias of pull_request_id.'
+          schema:
+            type: integer
+            maximum: 2147483647
+            minimum: 1
       responses:
         '200':
           description: 'Start application.'
@@ -3175,6 +3191,8 @@ paths:
           $ref: '#/components/responses/400'
         '404':
           $ref: '#/components/responses/404'
+        '422':
+          $ref: '#/components/responses/422'
       security:
         -
           bearerAuth: []
@@ -3200,6 +3218,22 @@ paths:
           schema:
             type: boolean
             default: true
+        -
+          name: pull_request_id
+          in: query
+          description: 'Pull request id. Stops only the preview deployment of this pull request instead of the application.'
+          schema:
+            type: integer
+            maximum: 2147483647
+            minimum: 1
+        -
+          name: pr
+          in: query
+          description: 'Alias of pull_request_id.'
+          schema:
+            type: integer
+            maximum: 2147483647
+            minimum: 1
       responses:
         '200':
           description: 'Stop application.'
@@ -3215,6 +3249,8 @@ paths:
           $ref: '#/components/responses/400'
         '404':
           $ref: '#/components/responses/404'
+        '422':
+          $ref: '#/components/responses/422'
       security:
         -
           bearerAuth: []
@@ -3233,6 +3269,22 @@ paths:
           required: true
           schema:
             type: string
+        -
+          name: pull_request_id
+          in: query
+          description: 'Pull request id. Restarts only the existing preview deployment of this pull request instead of the application.'
+          schema:
+            type: integer
+            maximum: 2147483647
+            minimum: 1
+        -
+          name: pr
+          in: query
+          description: 'Alias of pull_request_id.'
+          schema:
+            type: integer
+            maximum: 2147483647
+            minimum: 1
       responses:
         '200':
           description: 'Restart application.'
@@ -3249,6 +3301,8 @@ paths:
           $ref: '#/components/responses/400'
         '404':
           $ref: '#/components/responses/404'
+        '422':
+          $ref: '#/components/responses/422'
       security:
         -
           bearerAuth: []
