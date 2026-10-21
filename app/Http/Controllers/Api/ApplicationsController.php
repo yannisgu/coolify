@@ -5008,24 +5008,48 @@ class ApplicationsController extends Controller
         return migrateResourceToDestination($request, $application, 'Application', $teamId);
     }
 
+    /**
+     * Get the host side of a port mapping, e.g. "10.0.0.5:8080/tcp" for "10.0.0.5:8080:80".
+     *
+     * Returns null when the mapping has no fixed host port (Docker picks a random one).
+     */
+    private function portMappingHostBinding(string $portMapping): ?string
+    {
+        $protocol = preg_match('/\/(tcp|udp|sctp)/', $portMapping, $matches) ? $matches[1] : 'tcp';
+        $portMapping = preg_replace('/\/(tcp|udp|sctp)/', '', trim($portMapping));
+        $containerPortSeparator = strrpos($portMapping, ':');
+        if ($containerPortSeparator === false) {
+            return null;
+        }
+        $hostSide = substr($portMapping, 0, $containerPortSeparator);
+        if ($hostSide === '' || str_ends_with($hostSide, ':')) {
+            return null;
+        }
+
+        return "{$hostSide}/{$protocol}";
+    }
+
     private function validateDataApplications(Request $request, Server $server)
     {
         $teamId = getTeamIdFromToken();
 
-        // Validate ports_mappings
-        if ($request->has('ports_mappings')) {
-            $ports = [];
+        // Validate ports_mappings: each host binding (IP, port and protocol) can only be published once
+        if ($request->filled('ports_mappings') && is_string($request->ports_mappings)) {
+            $hostBindings = [];
             foreach (explode(',', $request->ports_mappings) as $portMapping) {
-                $port = explode(':', $portMapping);
-                if (in_array($port[0], $ports)) {
+                $hostBinding = $this->portMappingHostBinding($portMapping);
+                if (is_null($hostBinding)) {
+                    continue;
+                }
+                if (in_array($hostBinding, $hostBindings, true)) {
                     return response()->json([
                         'message' => 'Validation failed.',
                         'errors' => [
-                            'ports_mappings' => 'The first number before : should be unique between mappings.',
+                            'ports_mappings' => 'Each host port can only be mapped once per IP and protocol.',
                         ],
                     ], 422);
                 }
-                $ports[] = $port[0];
+                $hostBindings[] = $hostBinding;
             }
         }
         // Validate custom_labels
