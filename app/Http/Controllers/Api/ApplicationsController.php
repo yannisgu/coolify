@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Actions\Application\CleanupPreviewDeployment;
 use App\Actions\Application\LoadComposeFile;
 use App\Actions\Application\StopApplication;
+use App\Actions\Application\StopApplicationPreview;
 use App\Enums\BuildPackTypes;
 use App\Http\Controllers\Controller;
 use App\Jobs\DeleteResourceJob;
@@ -4471,6 +4472,26 @@ class ApplicationsController extends Controller
                     default: false,
                 )
             ),
+            new OA\Parameter(
+                name: 'pull_request_id',
+                in: 'query',
+                description: 'Pull request id. Deploys the preview deployment of this pull request instead of the application, like POST /applications/{uuid}/previews: a missing preview is created first (pass git_type for applications without a GitHub or GitLab App source, docker_tag for Docker Image applications), and the response contains the preview.',
+                schema: new OA\Schema(
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 2147483647,
+                )
+            ),
+            new OA\Parameter(
+                name: 'pr',
+                in: 'query',
+                description: 'Alias of pull_request_id.',
+                schema: new OA\Schema(
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 2147483647,
+                )
+            ),
         ],
         responses: [
             new OA\Response(
@@ -4501,6 +4522,10 @@ class ApplicationsController extends Controller
                 response: 404,
                 ref: '#/components/responses/404',
             ),
+            new OA\Response(
+                response: 422,
+                ref: '#/components/responses/422',
+            ),
         ]
     )]
     public function action_deploy(Request $request)
@@ -4521,6 +4546,17 @@ class ApplicationsController extends Controller
         }
 
         $this->authorize('deploy', $application);
+
+        $pullRequestId = $this->previewPullRequestIdFromRequest($request);
+        if ($pullRequestId instanceof JsonResponse) {
+            return $pullRequestId;
+        }
+        if ($pullRequestId !== 0) {
+            // Same workflow as POST /applications/{uuid}/previews: creates the preview if it is missing, then deploys it.
+            $request->merge(['pull_request_id' => $pullRequestId, 'force' => $force, 'instant_deploy' => true]);
+
+            return app(ApplicationPreviewsController::class)->store($request);
+        }
 
         $deployment_uuid = new_public_id();
 
@@ -4586,6 +4622,26 @@ class ApplicationsController extends Controller
                     default: true,
                 )
             ),
+            new OA\Parameter(
+                name: 'pull_request_id',
+                in: 'query',
+                description: 'Pull request id. Stops only the preview deployment of this pull request instead of the application.',
+                schema: new OA\Schema(
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 2147483647,
+                )
+            ),
+            new OA\Parameter(
+                name: 'pr',
+                in: 'query',
+                description: 'Alias of pull_request_id.',
+                schema: new OA\Schema(
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 2147483647,
+                )
+            ),
         ],
         responses: [
             new OA\Response(
@@ -4615,6 +4671,10 @@ class ApplicationsController extends Controller
                 response: 404,
                 ref: '#/components/responses/404',
             ),
+            new OA\Response(
+                response: 422,
+                ref: '#/components/responses/422',
+            ),
         ]
     )]
     public function action_stop(Request $request)
@@ -4633,6 +4693,29 @@ class ApplicationsController extends Controller
         }
 
         $this->authorize('deploy', $application);
+
+        $pullRequestId = $this->previewPullRequestIdFromRequest($request);
+        if ($pullRequestId instanceof JsonResponse) {
+            return $pullRequestId;
+        }
+        if ($pullRequestId !== 0) {
+            $preview = $application->previews()->where('pull_request_id', $pullRequestId)->first();
+            if (! $preview) {
+                return response()->json(['message' => "Preview for pull request {$pullRequestId} not found."], 404);
+            }
+            StopApplicationPreview::dispatch($preview);
+
+            auditLog('api.application.preview_stopped', [
+                'team_id' => $teamId,
+                'application_uuid' => $application->uuid,
+                'application_name' => $application->name,
+                'pull_request_id' => $pullRequestId,
+            ]);
+
+            return response()->json([
+                'message' => 'Preview deployment stopping request queued.',
+            ]);
+        }
 
         $dockerCleanup = $request->boolean('docker_cleanup', true);
         StopApplication::dispatch($application, false, $dockerCleanup);
@@ -4670,6 +4753,26 @@ class ApplicationsController extends Controller
                     type: 'string',
                 )
             ),
+            new OA\Parameter(
+                name: 'pull_request_id',
+                in: 'query',
+                description: 'Pull request id. Restarts only the existing preview deployment of this pull request instead of the application.',
+                schema: new OA\Schema(
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 2147483647,
+                )
+            ),
+            new OA\Parameter(
+                name: 'pr',
+                in: 'query',
+                description: 'Alias of pull_request_id.',
+                schema: new OA\Schema(
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 2147483647,
+                )
+            ),
         ],
         responses: [
             new OA\Response(
@@ -4701,6 +4804,10 @@ class ApplicationsController extends Controller
                 response: 404,
                 ref: '#/components/responses/404',
             ),
+            new OA\Response(
+                response: 422,
+                ref: '#/components/responses/422',
+            ),
         ]
     )]
     public function action_restart(Request $request)
@@ -4720,13 +4827,28 @@ class ApplicationsController extends Controller
 
         $this->authorize('deploy', $application);
 
+        $pullRequestId = $this->previewPullRequestIdFromRequest($request);
+        if ($pullRequestId instanceof JsonResponse) {
+            return $pullRequestId;
+        }
+        $preview = null;
+        if ($pullRequestId !== 0) {
+            $preview = $application->previews()->where('pull_request_id', $pullRequestId)->first();
+            if (! $preview) {
+                return response()->json(['message' => "Preview for pull request {$pullRequestId} not found."], 404);
+            }
+        }
+
         $deployment_uuid = new_public_id();
 
         $result = queue_application_deployment(
             application: $application,
             deployment_uuid: $deployment_uuid,
+            pull_request_id: $pullRequestId,
             restart_only: true,
             is_api: true,
+            git_type: $preview?->git_type,
+            docker_registry_image_tag: $preview?->docker_registry_image_tag,
         );
         if ($result['status'] === 'skipped') {
             return response()->json([
@@ -4739,6 +4861,7 @@ class ApplicationsController extends Controller
             'application_uuid' => $application->uuid,
             'application_name' => $application->name,
             'deployment_uuid' => $deployment_uuid,
+            'pull_request_id' => $pullRequestId,
         ]);
 
         return response()->json(
@@ -4747,6 +4870,28 @@ class ApplicationsController extends Controller
                 'deployment_uuid' => $deployment_uuid,
             ],
         );
+    }
+
+    /**
+     * Read the optional pull_request_id (or its alias pr) of the start, restart and stop endpoints.
+     *
+     * Returns 0 when it is missing or 0, which targets the application itself.
+     */
+    private function previewPullRequestIdFromRequest(Request $request): int|JsonResponse
+    {
+        $pullRequestId = $request->input('pull_request_id', $request->input('pr'));
+        if (blank($pullRequestId)) {
+            return 0;
+        }
+        $pullRequestId = filter_var($pullRequestId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 2147483647]]);
+        if ($pullRequestId === false) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => ['pull_request_id' => ['The pull request id must be an integer between 1 and 2147483647.']],
+            ], 422);
+        }
+
+        return $pullRequestId;
     }
 
     #[OA\Post(
