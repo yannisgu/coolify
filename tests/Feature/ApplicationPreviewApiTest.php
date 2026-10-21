@@ -502,6 +502,68 @@ describe('GET /api/v1/applications/{uuid}/logs service_name', function () {
     });
 });
 
+describe('GET /api/v1/applications/{uuid}/previews/{pull_request_id}/logs service_name', function () {
+    beforeEach(function () {
+        createPreview($this->application, 42);
+        $privateKey = PrivateKey::factory()->create(['team_id' => $this->team->id]);
+        $this->server->update(['private_key_id' => $privateKey->id]);
+        Process::fake(function ($process) {
+            if (str_contains($process->command, 'docker ps -a')) {
+                return Process::result(output: implode(PHP_EOL, [
+                    json_encode([
+                        'ID' => 'worker-container',
+                        'Names' => "worker-{$this->application->uuid}",
+                        'Labels' => "coolify.applicationId={$this->application->id},com.docker.compose.service=worker",
+                    ]),
+                    json_encode([
+                        'ID' => 'preview-web-container',
+                        'Names' => "web-pr-42-{$this->application->uuid}",
+                        'Labels' => "coolify.applicationId={$this->application->id},coolify.pullRequestId=42,com.docker.compose.service=web-pr-42",
+                    ]),
+                    json_encode([
+                        'ID' => 'preview-worker-container',
+                        'Names' => "worker-pr-42-{$this->application->uuid}",
+                        'Labels' => "coolify.applicationId={$this->application->id},coolify.pullRequestId=42,com.docker.compose.service=worker-pr-42",
+                    ]),
+                ]));
+            }
+            if (str_contains($process->command, 'docker inspect')) {
+                return Process::result(output: json_encode(['State' => ['Status' => 'running']]));
+            }
+            if (str_contains($process->command, 'docker logs')) {
+                return Process::result(output: match (true) {
+                    str_contains($process->command, 'preview-worker-container') => 'preview worker log',
+                    str_contains($process->command, 'preview-web-container') => 'preview web log',
+                    default => 'base worker log',
+                });
+            }
+
+            return Process::result();
+        });
+    });
+
+    test('returns logs from the preview container of the requested service', function () {
+        $this->withHeaders(previewAuthHeaders($this->bearerToken))
+            ->getJson("/api/v1/applications/{$this->application->uuid}/previews/42/logs?service_name=worker")
+            ->assertOk()
+            ->assertJson(['logs' => 'preview worker log']);
+    });
+
+    test('also accepts the suffixed preview service name', function () {
+        $this->withHeaders(previewAuthHeaders($this->bearerToken))
+            ->getJson("/api/v1/applications/{$this->application->uuid}/previews/42/logs?service_name=worker-pr-42")
+            ->assertOk()
+            ->assertJson(['logs' => 'preview worker log']);
+    });
+
+    test('returns 404 when the preview has no container for the service', function () {
+        $this->withHeaders(previewAuthHeaders($this->bearerToken))
+            ->getJson("/api/v1/applications/{$this->application->uuid}/previews/42/logs?service_name=db")
+            ->assertNotFound()
+            ->assertJson(['message' => "No running container found for service_name 'db'."]);
+    });
+});
+
 describe('GET /api/v1/applications/{uuid}/previews', function () {
     test('lists only the previews of the application', function () {
         createPreview($this->application, 12);

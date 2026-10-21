@@ -2584,7 +2584,7 @@ class ApplicationsController extends Controller
             new OA\Parameter(
                 name: 'service_name',
                 in: 'query',
-                description: 'Return logs only from the container of the Docker Compose service with this name. Returns 404 when no running container matches.',
+                description: 'Return logs only from the container of the Docker Compose service with this name (the key under `services:`, without the -pr-<id> suffix of preview containers). Returns 404 when no running container matches.',
                 required: false,
                 schema: new OA\Schema(type: 'string'),
             ),
@@ -2643,10 +2643,12 @@ class ApplicationsController extends Controller
 
         $serviceName = $request->query('service_name');
         if (filled($serviceName)) {
-            $matchingContainer = $containers->first(function ($container) use ($serviceName) {
+            // Preview containers carry the Compose service name with a -pr-<id> suffix.
+            $composeServiceNames = array_unique([$serviceName, addPreviewDeploymentSuffix((string) $serviceName, $pullRequestId ?? 0)]);
+            $matchingContainer = $containers->first(function ($container) use ($composeServiceNames) {
                 $labels = data_get($container, 'Labels');
 
-                return filled($labels) && format_docker_labels_to_json($labels)->get('com.docker.compose.service') === $serviceName;
+                return filled($labels) && in_array(format_docker_labels_to_json($labels)->get('com.docker.compose.service'), $composeServiceNames, true);
             });
 
             if (! $matchingContainer) {
